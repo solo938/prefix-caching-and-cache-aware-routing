@@ -74,3 +74,53 @@ class PrefixCache:
             return 0.0
         return self.hits / total
 
+# Step 2 - ttft_with_cache
+def ttft_with_cache(prompt_len, cached_tokens, prefill_tps, overhead_s):
+    return round(overhead_s + (prompt_len - cached_tokens) / prefill_tps, 6)
+
+
+def prefill_saved_s(prompt_len, cached_tokens, prefill_tps):
+    if cached_tokens == 0:
+        return 0
+    return cached_tokens / prefill_tps
+
+
+def kv_bytes(tokens, kv_bytes_per_token):
+    return tokens * kv_bytes_per_token
+
+
+def blocks_for(memory_bytes, block_size, kv_bytes_per_token):
+    return int(memory_bytes // (block_size * kv_bytes_per_token))
+
+
+def savings_report(prompt_lens, cached_lens, prefill_tps, overhead_s):
+    total_prompts = sum(prompt_lens)
+    total_cached = sum(cached_lens)
+
+    cached_times = [
+        ttft_with_cache(p, c, prefill_tps, overhead_s)
+        for p, c in zip(prompt_lens, cached_lens)
+    ]
+    uncached_times = [
+        ttft_with_cache(p, 0, prefill_tps, overhead_s)
+        for p in prompt_lens
+    ]
+
+    mean_ttft = sum(cached_times) / len(cached_times) if cached_times else 0.0
+    mean_ttft_nocache = (
+        sum(uncached_times) / len(uncached_times) if uncached_times else 0.0
+    )
+
+    ttft_reduction = (
+        1 - mean_ttft / mean_ttft_nocache if mean_ttft_nocache else 0.0
+    )
+    fraction_saved = total_cached / total_prompts if total_prompts else 0.0
+
+    return {
+        "mean_ttft": round(mean_ttft, 6),
+        "mean_ttft_nocache": round(mean_ttft_nocache, 6),
+        "ttft_reduction": round(ttft_reduction, 6),
+        "tokens_saved": int(total_cached),
+        "fraction_saved": round(fraction_saved, 6),
+    }
+
